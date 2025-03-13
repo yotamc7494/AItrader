@@ -11,13 +11,6 @@ TRADE_PKL = "retro_trades.pkl"
 # If you want a separate folder for saved models
 SAVED_MODELS_DIR = "./saved_models"
 
-# Default settings dict, as you had in your old code
-settings = {
-    'collect trades': True,
-    'suggest trades': False,
-    'auto execute': False
-}
-
 # The main symbols list you used
 symbols = [
     {"symbol": "EURJPY", "exchange": "FX_IDC", "screener": "forex"},
@@ -44,4 +37,4 @@ symbols = [
 ]
 
 # For balancing trades, min thresholds for durations
-min_thresh = [0.0007, 0.0008, 0.0009, 0.0010, 0.0011]
+min_thresh = [0.0005, 0.0006, 0.0007, 0.0008, 0.0009]

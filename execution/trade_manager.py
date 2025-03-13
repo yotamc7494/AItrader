@@ -4,13 +4,10 @@ import time
 from datetime import datetime, UTC, timedelta, timezone
 import math
 from PIL import ImageGrab
-from sklearn.preprocessing import MinMaxScaler
-from pyts.image import GramianAngularField
-from tensorflow.keras.optimizers import Adam
 import pyautogui
-from config import symbols, settings
-from ml_pipeline.save_and_load import load_brains
+from config import symbols
 from data_manager.trade_storage import LoadTrades
+from rf_pipline.load_and_save import save_rf_models, load_rf_models
 
 
 def fetch_historical_values(symbol):
@@ -65,7 +62,24 @@ def fetch_historical_values(symbol):
             "STOCH_D": stoch_d,
             "RSI": rsi,
         }
-        return params
+        list_params = [
+            normalized_prices[0],
+            normalized_prices[1],
+            normalized_prices[2],
+            normalized_prices[3],
+            normalized_volume,
+            sma7,
+            sma21,
+            ema7,
+            ema21,
+            macd,
+            macd_signal,
+            williams_r,
+            stoch_k,
+            stoch_d,
+            rsi,
+        ]
+        return list_params
 
     except Exception as e:
         print(f"Error fetching indicators: {e}")
@@ -149,7 +163,7 @@ def EnterLiveTrade(trade_list):
     perform_action("click", coords=(1038, 438))
     index = 0
     while True:
-        perform_action('type', text=trade['symbol'])
+        perform_action('type', text=trade['symbol']['symbol'])
         first_box = ((986, 521), (1482, 566))
         second_box = ((986, 566), (1482, 611))
         symbol_box = ((1190, 521), (1400, 566))
@@ -173,7 +187,7 @@ def EnterLiveTrade(trade_list):
     perform_action("doubleclick", coords=(1491, 412))
     perform_action('type', text=trade['duration'])
 
-    if trade['side'] == 'BUY':
+    if trade['direction'] == 'BUY':
         perform_action("move", coords=(1787, 613))
         perform_action("click", coords=(1787, 613))
     else:
@@ -236,46 +250,6 @@ def GetCurrentPrice(symbol):
     return float(symbol['last price'])
 
 
-def predict_trades(brain, trades):
-
-    # 1) Gather GAF images into an array for a single predict call
-    X = [t['input'] for t in trades]
-    X = np.array(X, dtype=np.float32)
-
-    # 2) Model inference => shape (N, 3)
-    preds = brain.predict(X)
-
-    # 3) Build results
-    results = []
-    for i, prob_vector in enumerate(preds):
-        # prob_vector might look like [0.3, 0.2, 0.5]
-        side_idx = np.argmax(prob_vector)
-        side_prob = prob_vector[side_idx]
-
-        # Determine side label
-        if side_idx == 0:
-            side_label = 'BUY'
-        elif side_idx == 1:
-            side_label = 'SELL'
-        else:
-            side_label = 'NEUTRAL'
-
-        # Skip if NEUTRAL
-        if side_label == 'NEUTRAL':
-            continue
-
-        # 4) Add to the results
-        results.append({
-            'score': float(side_prob),
-            'trade': trades[i],
-            'side': side_label
-        })
-
-    # 5) Sort by abs(score) descending
-    results.sort(key=lambda x: abs(x['score']), reverse=True)
-    return results
-
-
 def UpdatePrices(interval=Interval.INTERVAL_1_MINUTE):
     """
     Fetch the latest prices for all known symbols.
@@ -299,6 +273,55 @@ def UpdatePrices(interval=Interval.INTERVAL_1_MINUTE):
         print(f"Error updating prices: {e}")
 
 
+def ConvertToRFFormat(data):
+    if len(data) != 30 or any(len(row) != 15 for row in data):
+        raise ValueError("Invalid input format. Expected 30 lists with 15 elements each.")
+    transformed_data = [[data[j][i] for j in range(30)] for i in range(15)]
+
+    return transformed_data
+
+
+def predict_trades(trades, trade_detector_models, trade_direction_models):
+    detected_trades = []
+
+    for duration in trade_direction_models.keys():
+        trade_detector = trade_detector_models[duration]
+        trade_direction = trade_direction_models[duration]
+
+        print(f"\n🔹 Processing trades for {duration}-minute duration...")
+
+        # Extract inputs
+        X = np.array([trade['input'].flatten() for trade in trades])
+
+        # **Step 1: Trade Detection**
+        trade_predictions = trade_detector.predict(X)
+        detected_indices = np.where(trade_predictions == 1)[0]
+
+        if len(detected_indices) == 0:
+            continue
+
+        detected_trades_batch = [trades[i] for i in detected_indices]
+
+        # **Step 2: Trade Direction Prediction**
+        X_detected = np.array([trade['input'].flatten() for trade in detected_trades_batch])
+        direction_predictions = trade_direction.predict(X_detected)
+        direction_confidences = trade_direction.predict_proba(X_detected)  # Probabilities for each class
+
+        for i, trade in enumerate(detected_trades_batch):
+            trade['duration'] = duration  # Store trade duration
+            trade['direction'] = "BUY" if direction_predictions[i] == 1 else "SELL"
+            trade['confidence'] = max(direction_confidences[i])  # Use max probability as confidence
+
+            detected_trades.append(trade)
+
+    # **Step 3: Sort trades by confidence (descending)**
+    sorted_trades = sorted(detected_trades, key=lambda x: x['confidence'], reverse=True)
+
+    print(f"✅ {len(sorted_trades)} trades detected and ranked by confidence.")
+
+    return sorted_trades
+
+
 class AITradeManager:
     def __init__(self):
         self.start_time = time.time()
@@ -307,17 +330,14 @@ class AITradeManager:
         self.open_trades_list = []
         self.params_names = list(fetch_historical_values(symbols[0]).keys())
         self.valid_symbols = []
-        self.active_trades = []
-
+        self.models = {
+            'mag': load_rf_models('mag'),
+            'dir': load_rf_models('dir')
+        }
         # In case no trades are loaded, add a dummy for shape
-        trades = LoadTrades()
-        if not trades:
-            trades.append({'input': np.zeros((15, 30, 30)), 'results': {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0}})
-        self.retro_trades = trades
+        #trades = LoadTrades()
+        #self.retro_trades = trades
         # Build the EntryBrain / DirectionBrain for each duration:
-        self.brains = load_brains("./saved_models")
-
-        self.gaf_cache = {}
         self.historical_data = {symbol['symbol']: [] for symbol in symbols}
         self.historical_window = 30
         current_time = datetime.now(UTC)
@@ -333,29 +353,29 @@ class AITradeManager:
         self.open_trades()
 
     def open_trades(self):
-        self.update_gaf_cache()
+        self.update_symbols_data()
         warmup = True
         trades = []
         for symbol in self.valid_symbols:
-            if symbol['symbol'] in self.gaf_cache:
-                gaf_image = self.gaf_cache[symbol['symbol']]
-                if gaf_image is not None:
-                    warmup = False
-                    trades.append({
-                        'symbol': symbol,
-                        'input': gaf_image,
-                        'price': GetCurrentPrice(symbol)
-                    })
-                    if settings['collect trades']:
-                        price = GetCurrentPrice(symbol)
-                        new_trade = Trade(symbol, self.durations, gaf_image, price)
-                        self.open_trades_list.append(new_trade)
-        if warmup or len(self.valid_symbols) == 0:
-            print("❌ Not Enough Data To Predict Trades")
+            if len(self.historical_data[symbol['symbol']]) == self.historical_window:
+                warmup = False
+                trades.append({
+                    'symbol': symbol,
+                    'input': ConvertToRFFormat(self.historical_data[symbol['symbol']]),
+                    'price': GetCurrentPrice(symbol)
+                })
+                #price = GetCurrentPrice(symbol)
+                #new_trade = Trade(symbol, self.durations, gaf_image, price)
+                #self.open_trades_list.append(new_trade)
+        if len(self.valid_symbols) == 0:
+            print("❌ All Assets Unavailable For Trading")
+        elif warmup:
+            progress = len(self.historical_data[symbols[0]['symbol']])/self.historical_window
+            time_left = self.historical_window - len(self.historical_data[symbols[0]['symbol']])
+            print(f"❌ Warmup Stage {int(progress*1000)/10}% | Ready In {time_left} Min")
         else:
             print(f"✅ {len(self.open_trades_list)} Trades Are Open")
-            if settings['suggest trades']:
-                self.suggest_trades(trades, settings['auto execute'])
+            self.suggest_trades(trades, False)
 
     def close_trades(self):
         trades_to_remove = []
@@ -381,34 +401,12 @@ class AITradeManager:
         if not self.valid_symbols:
             print("❌ No valid symbols available for trading.")
 
-    def generate_gaf(self, historical_data, symbol):
-        try:
-            if len(historical_data) < self.historical_window:
-                raise ValueError(f"Not enough data to generate GAF. Need at least {self.historical_window} samples.")
-            keys = historical_data[0].keys()
-            data_matrix = np.array([[entry[key] for key in keys] for entry in historical_data])
-            scaler = MinMaxScaler(feature_range=(-1, 1))
-            scaled_data = scaler.fit_transform(data_matrix)
-            gasf = GramianAngularField(image_size=self.historical_window)
-            gaf_images = [
-                gasf.fit_transform(scaled_data[:, i].reshape(1, -1))[0]
-                for i in range(scaled_data.shape[1])
-            ]
-            self.gaf_cache[symbol['symbol']] = np.stack(gaf_images, axis=0)
-        except Exception as e:
-            return None
-
-    def generate_historical_data(self, symbol):
-        params = fetch_historical_values(symbol)
-        self.historical_data[symbol['symbol']].append(params)
-        if len(self.historical_data[symbol['symbol']]) > self.historical_window:
-            self.historical_data[symbol['symbol']].pop(0)
-
-    def update_gaf_cache(self):
+    def update_symbols_data(self):
         for symbol in self.symbols:
-            self.generate_historical_data(symbol)
-            historical_data = self.historical_data[symbol['symbol']]
-            self.generate_gaf(historical_data, symbol)
+            params = fetch_historical_values(symbol)
+            self.historical_data[symbol['symbol']].append(params)
+            if len(self.historical_data[symbol['symbol']]) > self.historical_window:
+                self.historical_data[symbol['symbol']].pop(0)
 
     def validate_time(self):
         current_time = datetime.now(UTC)
@@ -416,42 +414,22 @@ class AITradeManager:
         if current_minute_time != self.last_recorded_time + timedelta(minutes=1):
             print("⏰ Update took too long, clearing open trades.")
             self.open_trades_list.clear()
-            self.gaf_cache.clear()
             self.historical_data = {symbol['symbol']: [] for symbol in symbols}
         self.last_recorded_time = current_minute_time
 
     def suggest_trades(self, trade_list, auto_click):
-        executable_trades = []
-        for duration in map(str, self.durations):
-            print(f"Predicting with EntryBrain for duration {duration}...")
-            actionable_trades = predict_trades(self.brains[duration], trade_list)
-            print(f"Number of actionable trades for duration {duration}: {len(actionable_trades)}")
-            if actionable_trades:
-                print(f"Predicting with DirectionBrain for duration {duration}...")
-                for data in actionable_trades:
-                    trade = data['trade']
-                    predicted_result = data['side']
-                    confidence = abs(data['score'])
-                    price = GetCurrentPrice(trade['symbol'])
-                    executable_trades.append({
-                        'symbol': trade['symbol']['symbol'],
-                        'side': predicted_result,
-                        'duration': duration,
-                        'score': confidence,
-                        'price': price
-                    })
+        executable_trades = predict_trades(trade_list, self.models['mag'], self.models['dir'])
         if executable_trades:
-            executable_trades = sorted(executable_trades, key=lambda x: x['score'], reverse=True)
             if auto_click:
                 best_trade = EnterLiveTrade(executable_trades)
             else:
                 best_trade = executable_trades[0]
             if best_trade:
-                print(f"Enter Trade - {int(best_trade['score'] * 100)}%")
-                print(f"Symbol: {best_trade['symbol']}")
+                print(f"Enter Trade - {int(best_trade['confidence'] * 100)}%")
+                print(f"Symbol: {best_trade['symbol']['symbol']}")
                 print(f"Duration: {float(best_trade['duration'])}")
-                print(f"Side: {best_trade['side']}")
-                print(f"Price: {best_trade['price']}")
+                print(f"Side: {best_trade['direction']}")
+                print(f"Price: {GetCurrentPrice(best_trade['symbol'])}")
             else:
                 print("❌ No Valid Trades Found")
         else:

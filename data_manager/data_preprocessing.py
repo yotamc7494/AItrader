@@ -6,50 +6,46 @@ Functions for data balancing, normalizing, etc.
 import random
 from config import min_thresh
 
+import random
+
+
 def BalanceTrades(trades_list):
     """
-    Moved from your old code. Balances trades into buy/sell/neutral per duration.
+    Balances the dataset by ensuring equal distribution of BUY, SELL, and NEUTRAL trades.
+
+    Parameters:
+        trades_list (list): List of trade dictionaries containing 'results'.
+        min_thresh (list): Thresholds for categorizing buy/sell movements.
+
+    Returns:
+        list: Balanced list of trades.
     """
-    for i in range(5):  # 5 durations
-        label = str(i + 1)
-        buy_threshold = min_thresh[i]
-        sell_threshold = -min_thresh[i]
-        buy_trades = [idx for idx, trade in enumerate(trades_list)
-                      if trade['results'][label] is not None and trade['results'][label] > buy_threshold]
-        sell_trades = [idx for idx, trade in enumerate(trades_list)
-                       if trade['results'][label] is not None and trade['results'][label] < sell_threshold]
-        neutral_trades = [idx for idx, trade in enumerate(trades_list)
-                          if trade['results'][label] is not None
-                          and sell_threshold <= trade['results'][label] <= buy_threshold]
+    label = "3"  # We balance based on the 1-minute movement
+    buy_threshold = min_thresh[0]  # Use first threshold
+    sell_threshold = -min_thresh[0]  # Negative for sell
 
-        min_class_size = min(len(buy_trades), len(sell_trades), len(neutral_trades))
-        buy_trades = random.sample(buy_trades, min_class_size) if len(buy_trades) > min_class_size else buy_trades
-        sell_trades = random.sample(sell_trades, min_class_size) if len(sell_trades) > min_class_size else sell_trades
-        neutral_trades = random.sample(neutral_trades, min_class_size * 2) if len(neutral_trades) * 2 > min_class_size else neutral_trades
+    # Categorize trades into BUY, SELL, and NEUTRAL
+    buy_trades = [trade for trade in trades_list if
+                  trade['results'][label] is not None and trade['results'][label] > buy_threshold]
+    sell_trades = [trade for trade in trades_list if
+                   trade['results'][label] is not None and trade['results'][label] < sell_threshold]
+    neutral_trades = [trade for trade in trades_list if
+                      trade['results'][label] is not None and sell_threshold <= trade['results'][
+                          label] <= buy_threshold]
 
-        valid_indices = set(buy_trades + sell_trades + neutral_trades)
-        for idx, trade in enumerate(trades_list):
-            if idx not in valid_indices:
-                trade['results'][label] = None
+    # Find the minimum class size to balance the dataset
+    min_class_size = min(len(buy_trades), len(sell_trades), len(neutral_trades))
 
-        print(f"For duration {label}:")
-        print(f"BUY trades: {len(buy_trades)}")
-        print(f"SELL trades: {len(sell_trades)}")
-        print(f"NEUTRAL trades: {len(neutral_trades)}")
-        print(f"Total balanced trades: {3 * min_class_size}")
+    # Randomly sample to make all classes equal in size
+    buy_trades = random.sample(buy_trades, min_class_size) if len(buy_trades) > min_class_size else buy_trades
+    sell_trades = random.sample(sell_trades, min_class_size) if len(sell_trades) > min_class_size else sell_trades
+    neutral_trades = random.sample(neutral_trades, min_class_size) if len(
+        neutral_trades) > min_class_size else neutral_trades
 
-    # remove trades that ended up with no durations
-    idx = 0
-    while idx < len(trades_list):
-        remove = True
-        for i in range(5):
-            label = str(i + 1)
-            if trades_list[idx]['results'][label] is not None:
-                remove = False
-                break
-        if remove:
-            trades_list.pop(idx)
-        else:
-            idx += 1
+    # Merge balanced trades
+    balanced_trades = buy_trades + sell_trades + neutral_trades
 
-    return trades_list
+    print(f"✅ Balanced Trades - BUY: {len(buy_trades)}, SELL: {len(sell_trades)}, NEUTRAL: {len(neutral_trades)}")
+
+    return balanced_trades
+
