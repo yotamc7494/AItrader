@@ -6,8 +6,7 @@ import math
 from PIL import ImageGrab
 import pyautogui
 from config import symbols
-from data_manager.trade_storage import LoadTrades
-from rf_pipline.load_and_save import save_rf_models, load_rf_models
+from rf_pipline.load_and_save import load_rf_models
 
 
 def fetch_historical_values(symbol):
@@ -62,24 +61,7 @@ def fetch_historical_values(symbol):
             "STOCH_D": stoch_d,
             "RSI": rsi,
         }
-        list_params = [
-            normalized_prices[0],
-            normalized_prices[1],
-            normalized_prices[2],
-            normalized_prices[3],
-            normalized_volume,
-            sma7,
-            sma21,
-            ema7,
-            ema21,
-            macd,
-            macd_signal,
-            williams_r,
-            stoch_k,
-            stoch_d,
-            rsi,
-        ]
-        return list_params
+        return params
 
     except Exception as e:
         print(f"Error fetching indicators: {e}")
@@ -291,7 +273,7 @@ def predict_trades(trades, trade_detector_models, trade_direction_models):
         print(f"\n🔹 Processing trades for {duration}-minute duration...")
 
         # Extract inputs
-        X = np.array([trade['input'].flatten() for trade in trades])
+        X = np.array([[x for xs in trade['input'] for x in xs] for trade in trades])
 
         # **Step 1: Trade Detection**
         trade_predictions = trade_detector.predict(X)
@@ -303,7 +285,7 @@ def predict_trades(trades, trade_detector_models, trade_direction_models):
         detected_trades_batch = [trades[i] for i in detected_indices]
 
         # **Step 2: Trade Direction Prediction**
-        X_detected = np.array([trade['input'].flatten() for trade in detected_trades_batch])
+        X_detected = np.array([[x for xs in trade['input'] for x in xs] for trade in detected_trades_batch])
         direction_predictions = trade_direction.predict(X_detected)
         direction_confidences = trade_direction.predict_proba(X_detected)  # Probabilities for each class
 
@@ -311,8 +293,8 @@ def predict_trades(trades, trade_detector_models, trade_direction_models):
             trade['duration'] = duration  # Store trade duration
             trade['direction'] = "BUY" if direction_predictions[i] == 1 else "SELL"
             trade['confidence'] = max(direction_confidences[i])  # Use max probability as confidence
-
-            detected_trades.append(trade)
+            if trade['confidence'] > 0.7:
+                detected_trades.append(trade)
 
     # **Step 3: Sort trades by confidence (descending)**
     sorted_trades = sorted(detected_trades, key=lambda x: x['confidence'], reverse=True)
@@ -375,7 +357,7 @@ class AITradeManager:
             print(f"❌ Warmup Stage {int(progress*1000)/10}% | Ready In {time_left} Min")
         else:
             print(f"✅ {len(self.open_trades_list)} Trades Are Open")
-            self.suggest_trades(trades, False)
+            self.suggest_trades(trades, True)
 
     def close_trades(self):
         trades_to_remove = []
@@ -403,8 +385,13 @@ class AITradeManager:
 
     def update_symbols_data(self):
         for symbol in self.symbols:
+            #self.historical_data[symbol['symbol']] = [[random.uniform(0, 1) for _ in range(15)] for _ in range(30)]
+            #continue
             params = fetch_historical_values(symbol)
-            self.historical_data[symbol['symbol']].append(params)
+            param_list = []
+            for param_name in params:
+                param_list.append(params[param_name])
+            self.historical_data[symbol['symbol']].append(param_list)
             if len(self.historical_data[symbol['symbol']]) > self.historical_window:
                 self.historical_data[symbol['symbol']].pop(0)
 

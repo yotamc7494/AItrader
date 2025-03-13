@@ -1,9 +1,4 @@
 # config.py
-"""
-Central place for global settings, constants, and references.
-"""
-
-import os
 
 # Where we store trade data
 TRADE_PKL = "retro_trades.pkl"

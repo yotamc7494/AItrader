@@ -1,39 +1,15 @@
 # data_manager/trade_storage.py
-"""
-Functions to load and save trades from pickle,
-and store the global retro_trades list if you wish.
-"""
-
-import pickle
-import os
-
-from config import TRADE_PKL
-
-# Global trades list, as in your old code
 retro_trades = []
-
 import os
 import pickle
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from pyts.image import GramianAngularField
 
 # Define global variables
 TRADE_FOLDER = "./retro_trades"
 CHUNK_SIZE = 5000
 
-
+"""
 # Function to decode GAF images back to time-series data
 def decode_gaf(gaf_image):
-    """
-    Approximates the original numerical time-series data from a GAF (15,30,30) image.
-
-    Parameters:
-        gaf_image (np.array): (15,30,30) GAF representation.
-
-    Returns:
-        np.array: (15,30) array approximating original indicators over time.
-    """
     try:
         # Initialize output array
         num_indicators, time_steps, _ = gaf_image.shape
@@ -58,12 +34,6 @@ def decode_gaf(gaf_image):
 
 # Function to transform and save trades
 def transform_and_save_trades(trades):
-    """
-    Transforms GAF-based trades into numerical time-series indicators and saves them.
-
-    Parameters:
-        trades (list): List of trade dictionaries containing GAF images.
-    """
     transformed_trades = []
 
     for trade in trades:
@@ -78,7 +48,7 @@ def transform_and_save_trades(trades):
                     'results': trade['results']
                 })
     SaveTrades(transformed_trades)
-
+"""
 
 # Load function remains unchanged
 def LoadTrades():
