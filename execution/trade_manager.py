@@ -1,7 +1,7 @@
 import numpy as np
 from tradingview_ta import TA_Handler, Interval, get_multiple_analysis
 import time
-from datetime import datetime, UTC, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import math
 from PIL import ImageGrab
 import pyautogui
@@ -201,7 +201,7 @@ def CheckIfMarketOpen(symbol_info):
 
 
 def WaitForCandleClose():
-    current_time = datetime.now(UTC)
+    current_time = datetime.now(timezone.utc)
     seconds_until_next_minute = 60 - current_time.second
     future_time = current_time + timedelta(hours=2)
     formatted_time = future_time.strftime('%d/%m/%y - %H:%M:%S')
@@ -308,7 +308,7 @@ class AITradeManager:
         self.retro_trades = trades
         self.historical_data = {symbol['symbol']: [] for symbol in symbols}
         self.historical_window = 30
-        current_time = datetime.now(UTC)
+        current_time = datetime.now(timezone.utc)
         current_minute_time = current_time.replace(second=0, microsecond=0)
         self.last_recorded_time = current_minute_time - timedelta(minutes=1)
 
@@ -345,7 +345,8 @@ class AITradeManager:
             print(f"❌ Warmup Stage {int(progress*1000)/10}% | Ready In {time_left} Min")
         else:
             print(f"✅ {len(self.open_trades_list)} Trades Are Open")
-            self.suggest_trades(trades, False)
+            if not collect:
+                self.suggest_trades(trades, False)
 
     def close_trades(self):
         trades_to_remove = []
@@ -380,7 +381,7 @@ class AITradeManager:
                 self.historical_data[symbol['symbol']].pop(0)
 
     def validate_time(self):
-        current_time = datetime.now(UTC)
+        current_time = datetime.now(timezone.utc)
         current_minute_time = current_time.replace(second=0, microsecond=0)
         if current_minute_time != self.last_recorded_time + timedelta(minutes=1):
             print("⏰ Update took too long, clearing open trades.")

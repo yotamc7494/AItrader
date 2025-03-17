@@ -9,6 +9,7 @@ def main():
     print("Select Option: ")
     print("T - Train Model")
     print("C - Collect Trades")
+    print("L - Live Trading")
     print("E - Exit")
     choice = input("Choice: ").strip().upper()
 
