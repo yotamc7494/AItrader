@@ -5,11 +5,12 @@ from datetime import datetime, UTC, timedelta, timezone
 import math
 from PIL import ImageGrab
 import pyautogui
+from data_manager.trade_storage import LoadTrades, SaveTrades
 from config import symbols
 from rf_pipline.load_and_save import load_rf_models
 
 
-def fetch_historical_values(symbol):
+def fetch_inputs(symbol):
     try:
         handler = TA_Handler(
             symbol=symbol['symbol'],
@@ -20,52 +21,38 @@ def fetch_historical_values(symbol):
         analysis = handler.get_analysis()
         indicators = analysis.indicators
 
-        open_price = analysis.indicators.get('open', 0)
-        high_price = analysis.indicators.get('high', 0)
-        low_price = analysis.indicators.get('low', 0)
-        close_price = analysis.indicators.get('close', 0)
-        volume = analysis.indicators.get('volume', 0)
-
-        price_data = [open_price, high_price, low_price, close_price]
-        price_min = min(price_data)
-        price_max = max(price_data)
-        normalized_prices = [(x - price_min) / (price_max - price_min + 1e-6) for x in price_data]
-
-        normalized_volume = volume / (volume + 1e-6)
-
-        sma7 = indicators.get('SMA7') or indicators.get('SMA5')
-        sma21 = indicators.get('SMA20') or indicators.get('SMA30')
-        ema7 = indicators.get('EMA7') or indicators.get('EMA10')
-        ema21 = indicators.get('EMA20') or indicators.get('EMA30')
+        # Core indicators
+        rsi = indicators.get('RSI', 0)
         macd = indicators.get('MACD.macd', 0)
         macd_signal = indicators.get('MACD.signal', 0)
+        ema7 = indicators.get('EMA7') or indicators.get('EMA10', 0)
+        ema21 = indicators.get('EMA20') or indicators.get('EMA30', 0)
+        sma7 = indicators.get('SMA7') or indicators.get('SMA5', 0)
+        sma21 = indicators.get('SMA20') or indicators.get('SMA30', 0)
         williams_r = indicators.get('W.R', 0)
-        stoch_k = indicators.get('Stoch.K', 0)
-        stoch_d = indicators.get('Stoch.D', 0)
-        rsi = indicators.get('RSI', 0)
+        volume = indicators.get('volume', 0)
 
-        params = {
-            "OPEN": normalized_prices[0],
-            "HIGH": normalized_prices[1],
-            "LOW": normalized_prices[2],
-            "CLOSE": normalized_prices[3],
-            "VOLUME": normalized_volume,
-            "SMA7": sma7,
-            "SMA21": sma21,
-            "EMA7": ema7,
-            "EMA21": ema21,
-            "MACD": macd,
-            "MACD_SIGNAL": macd_signal,
-            "WILLIAMS_R": williams_r,
-            "STOCH_K": stoch_k,
-            "STOCH_D": stoch_d,
-            "RSI": rsi,
-        }
-        return params
+        # Normalize volume (optional scaling)
+        normalized_volume = volume / (volume + 1e-6)
+
+        # Assemble relevant input vector
+        inputs = [
+            rsi,
+            macd,
+            macd_signal,
+            ema7,
+            ema21,
+            sma7,
+            sma21,
+            williams_r,
+            normalized_volume
+        ]
+
+        return inputs
 
     except Exception as e:
         print(f"Error fetching indicators: {e}")
-        return {}
+        return [0] * 9  # Return zeroed inputs if failed
 
 
 def perform_action(action, coords=None, text=None, delay=0.5):
@@ -256,9 +243,9 @@ def UpdatePrices(interval=Interval.INTERVAL_1_MINUTE):
 
 
 def ConvertToRFFormat(data):
-    if len(data) != 30 or any(len(row) != 15 for row in data):
+    if len(data) != 30 or any(len(row) != 9 for row in data):
         raise ValueError("Invalid input format. Expected 30 lists with 15 elements each.")
-    transformed_data = [[data[j][i] for j in range(30)] for i in range(15)]
+    transformed_data = [[data[j][i] for j in range(30)] for i in range(9)]
 
     return transformed_data
 
@@ -310,45 +297,46 @@ class AITradeManager:
         self.symbols = symbols
         self.durations = list(range(1, 6))
         self.open_trades_list = []
-        self.params_names = list(fetch_historical_values(symbols[0]).keys())
         self.valid_symbols = []
         self.models = {
             'mag': load_rf_models('mag'),
             'dir': load_rf_models('dir')
         }
         # In case no trades are loaded, add a dummy for shape
-        #trades = LoadTrades()
-        #self.retro_trades = trades
-        # Build the EntryBrain / DirectionBrain for each duration:
+        self.added_trades = 0
+        trades = LoadTrades()
+        self.retro_trades = trades
         self.historical_data = {symbol['symbol']: [] for symbol in symbols}
         self.historical_window = 30
         current_time = datetime.now(UTC)
         current_minute_time = current_time.replace(second=0, microsecond=0)
         self.last_recorded_time = current_minute_time - timedelta(minutes=1)
 
-    def get_trades(self):
+    def get_trades(self, collect=False):
         self.validate_time()
         WaitForCandleClose()
         UpdatePrices()
         self.close_trades()
         self.update_valid_symbols()
-        self.open_trades()
+        self.open_trades(collect)
 
-    def open_trades(self):
+    def open_trades(self, collect):
         self.update_symbols_data()
         warmup = True
         trades = []
         for symbol in self.valid_symbols:
             if len(self.historical_data[symbol['symbol']]) == self.historical_window:
                 warmup = False
+                inputs = ConvertToRFFormat(self.historical_data[symbol['symbol']])
                 trades.append({
                     'symbol': symbol,
-                    'input': ConvertToRFFormat(self.historical_data[symbol['symbol']]),
+                    'input': inputs,
                     'price': GetCurrentPrice(symbol)
                 })
-                #price = GetCurrentPrice(symbol)
-                #new_trade = Trade(symbol, self.durations, gaf_image, price)
-                #self.open_trades_list.append(new_trade)
+                if collect:
+                    price = GetCurrentPrice(symbol)
+                    new_trade = Trade(symbol, self.durations, inputs, price)
+                    self.open_trades_list.append(new_trade)
         if len(self.valid_symbols) == 0:
             print("❌ All Assets Unavailable For Trading")
         elif warmup:
@@ -357,7 +345,7 @@ class AITradeManager:
             print(f"❌ Warmup Stage {int(progress*1000)/10}% | Ready In {time_left} Min")
         else:
             print(f"✅ {len(self.open_trades_list)} Trades Are Open")
-            self.suggest_trades(trades, True)
+            self.suggest_trades(trades, False)
 
     def close_trades(self):
         trades_to_remove = []
@@ -373,6 +361,7 @@ class AITradeManager:
                 trades_to_remove.append(idx)
         for i in reversed(trades_to_remove):
             self.open_trades_list.pop(i)
+            self.added_trades += 1
         if trades_to_remove:
             print(f"\n✅ {len(trades_to_remove)} Trades Closed")
         else:
@@ -385,13 +374,8 @@ class AITradeManager:
 
     def update_symbols_data(self):
         for symbol in self.symbols:
-            #self.historical_data[symbol['symbol']] = [[random.uniform(0, 1) for _ in range(15)] for _ in range(30)]
-            #continue
-            params = fetch_historical_values(symbol)
-            param_list = []
-            for param_name in params:
-                param_list.append(params[param_name])
-            self.historical_data[symbol['symbol']].append(param_list)
+            params = fetch_inputs(symbol)
+            self.historical_data[symbol['symbol']].append(params)
             if len(self.historical_data[symbol['symbol']]) > self.historical_window:
                 self.historical_data[symbol['symbol']].pop(0)
 
