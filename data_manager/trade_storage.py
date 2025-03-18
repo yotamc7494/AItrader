@@ -4,51 +4,8 @@ import os
 import pickle
 
 # Define global variables
-TRADE_FOLDER = "./retro_trades"
+TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"
 CHUNK_SIZE = 5000
-
-"""
-# Function to decode GAF images back to time-series data
-def decode_gaf(gaf_image):
-    try:
-        # Initialize output array
-        num_indicators, time_steps, _ = gaf_image.shape
-        recovered_series = np.zeros((num_indicators, time_steps))
-
-        # Extract the diagonal values (strongest correlation to original sequence)
-        for i in range(num_indicators):
-            diagonal_values = np.diagonal(gaf_image[i])
-
-            # Convert from angular field back to original normalized values
-            recovered_series[i] = np.cos(np.arccos(np.clip(diagonal_values, -1, 1)))  # Clip to avoid NaNs
-
-        # Fit MinMaxScaler to normalize extracted values
-        scaler = MinMaxScaler(feature_range=(-1, 1))
-        recovered_series = scaler.fit_transform(recovered_series.T).T  # Fit & transform
-
-        return recovered_series
-    except Exception as e:
-        print(f"❌ Error decoding GAF: {e}")
-        return None
-
-
-# Function to transform and save trades
-def transform_and_save_trades(trades):
-    transformed_trades = []
-
-    for trade in trades:
-        if 'input' in trade and isinstance(trade['input'], np.ndarray) and trade['input'].shape == (15, 30, 30):
-            # Decode GAF image to (15,30) numerical time-series
-            numerical_features = decode_gaf(trade['input'])
-
-            if numerical_features is not None:
-                transformed_trades.append({
-                    'symbol': trade['symbol'],
-                    'input': numerical_features,
-                    'results': trade['results']
-                })
-    SaveTrades(transformed_trades)
-"""
 
 # Load function remains unchanged
 def LoadTrades():
