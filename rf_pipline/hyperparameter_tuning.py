@@ -11,9 +11,8 @@ from config import min_thresh, symbols
 def tune_parameter(param_name, start_val, step, max_val, model_type, train_trades, val_trades, other_params, direction=False, mag_models=None):
     best_val = start_val
     best_score = -np.inf
-    no_improve_count = 0
 
-    while no_improve_count < 2 and start_val <= max_val:
+    while start_val <= max_val:
         params = other_params.copy()
         params[param_name] = min(start_val, max_val)  # Ensure not exceeding max
 
@@ -34,10 +33,6 @@ def tune_parameter(param_name, start_val, step, max_val, model_type, train_trade
         if accuracy > best_score:
             best_score = accuracy
             best_val = start_val
-            no_improve_count = 0
-        else:
-            no_improve_count += 1
-
         start_val += step
     print(f"{param_name} Best val is: {best_val} | {best_score*100:.2f}% Accuracy")
     return best_val
@@ -127,17 +122,17 @@ def run_dynamic_tuning():
         'colsample_bytree': 0.5,
         'subsample': 0.5,
         'scale_pos_weight': 0.1,
-        'min_child_weight': 2,
+        'min_child_weight': 5,
     }
 
     param_steps = {
-        'gamma': (0.1, 2.0),
+        'gamma': (0.1, 1.5),
         'n_estimators': (50, 500),
-        'max_depth': (1, 10),
-        'learning_rate': (0.01, 0.2),
-        'colsample_bytree': (0.1, 1.0),
-        'subsample': (0.1, 1.0),
-        'scale_pos_weight': (0.05, 3.0),
+        'max_depth': (1, 6),
+        'learning_rate': (0.01, 0.15),
+        'colsample_bytree': (0.25, 1.0),
+        'subsample': (0.25, 1.0),
+        'scale_pos_weight': (0.1, 1.5),
         'min_child_weight': (1, 10),
     }
 
@@ -147,18 +142,19 @@ def run_dynamic_tuning():
         tuned_mag_params[param] = tune_parameter(param, base_params[param], step, max_val, 'mag', train_trades, val_trades, tuned_mag_params)
 
     # Retrain on train + val for final test
-    combined_trades = train_trades + val_trades
-    final_mag_models = train_mag_model(combined_trades, tuned_mag_params)
-    filtered_test_trades = get_detected_trades(val_trades, final_mag_models)
-    test = get_detected_trades(test_trades, final_mag_models, print_out=True)
+
+    final_mag_models = train_mag_model(train_trades, tuned_mag_params)
+    filtered_train_trades = get_detected_trades(val_trades, final_mag_models)
     print("\n🔹 Tuning Direction Model")
     tuned_dir_params = base_params.copy()
     for param, (step, max_val) in param_steps.items():
-        tuned_dir_params[param] = tune_parameter(param, base_params[param], step, max_val, 'dir', train_trades, filtered_test_trades, tuned_dir_params, direction=True, mag_models=final_mag_models)
+        tuned_dir_params[param] = tune_parameter(param, base_params[param], step, max_val, 'dir', train_trades, filtered_train_trades, tuned_dir_params, direction=True, mag_models=final_mag_models)
 
-    filtered_test_trades = get_detected_trades(combined_trades, final_mag_models)
-    final_dir_models = train_dir_model(filtered_test_trades, tuned_dir_params)
-    total_trades_taken, accuracy = test_trade_direction_model(test, final_dir_models, print_out=True)
+    filtered_train_trades = get_detected_trades(train_trades, final_mag_models)
+    final_dir_models = train_dir_model(filtered_train_trades, tuned_dir_params)
+
+    filtered_test_trades = get_detected_trades(test_trades, final_mag_models, print_out=True)
+    total_trades_taken, accuracy = test_trade_direction_model(filtered_test_trades, final_dir_models, print_out=True)
 
     # Final metrics
     symbols_amount = len(symbols)

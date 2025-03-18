@@ -363,13 +363,21 @@ class AITradeManager:
         for i in reversed(trades_to_remove):
             self.open_trades_list.pop(i)
             self.added_trades += 1
+            if self.added_trades % 5000 == 0:
+                SaveTrades(self.retro_trades)
+                print("Saved 5000 trades")
         if trades_to_remove:
             print(f"\n✅ {len(trades_to_remove)} Trades Closed")
         else:
             print(f"\n✅ No Trades Needed To Close")
 
     def update_valid_symbols(self):
-        self.valid_symbols = [symbol for symbol in symbols if CheckIfMarketOpen(symbol)]
+        self.valid_symbols = []
+        for symbol in symbols:
+            if CheckIfMarketOpen(symbol):
+                self.valid_symbols.append(symbol)
+            else:
+                self.historical_data[symbol['symbol']] = []
         if not self.valid_symbols:
             print("❌ No valid symbols available for trading.")
 

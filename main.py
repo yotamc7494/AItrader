@@ -6,6 +6,7 @@ from rf_pipline.rf_logic import train_rf_for_durations, train_trade_direction, g
 from data_manager.trade_storage import LoadTrades, SaveTrades
 from rf_pipline.load_and_save import load_rf_models, save_rf_models
 from rf_pipline.hyperparameter_tuning import run_dynamic_tuning
+import random
 
 
 def main():
@@ -19,6 +20,7 @@ def main():
 
     if choice == "T":
         trades = LoadTrades()
+        random.shuffle(trades)
         train_length = int(len(trades)*0.8)
         training_trades = trades[:train_length]
         test_trades = trades[train_length:]

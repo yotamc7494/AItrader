@@ -37,14 +37,14 @@ def train_rf_for_durations(trades):
 
         # Train XGBoost with class weighting to prioritize trade detection
         model = XGBClassifier(
-            n_estimators=100,
-            max_depth=9,
-            learning_rate=0.03,
-            gamma=0.5,  # Reduce from 1.5 → allows slightly more TRADEs
-            colsample_bytree=0.8,
-            subsample=0.8,
-            scale_pos_weight=0.5,  # Increase from 0.1 → allows more TRADEs
-            min_child_weight=7,  # Lower from 10 → reduces over-filtering
+            n_estimators=450,
+            max_depth=3,
+            learning_rate=0.02,
+            gamma=0.8,  # Reduce from 1.5 → allows slightly more TRADEs
+            colsample_bytree=0.6,
+            subsample=0.6,
+            scale_pos_weight=0.2,  # Increase from 0.1 → allows more TRADEs
+            min_child_weight=6,  # Lower from 10 → reduces over-filtering
             objective="binary:logistic",
             eval_metric="logloss"
         )
@@ -107,14 +107,14 @@ def train_trade_direction(trades):
 
         # Train XGBoost Model
         model = XGBClassifier(
-            n_estimators=150,
+            n_estimators=200,
             max_depth=3,
             learning_rate=0.03,
-            gamma=0.5,
-            colsample_bytree=0.7,
-            subsample=0.7,
-            scale_pos_weight=0.9,
-            min_chiled_weight=3,
+            gamma=0.8,
+            colsample_bytree=0.6,
+            subsample=0.6,
+            scale_pos_weight=1,
+            min_chiled_weight=6,
             objective="binary:logistic",
             eval_metric="logloss"
         )
@@ -122,7 +122,7 @@ def train_trade_direction(trades):
 
         # Make predictions with higher confidence threshold
         y_pred_proba = model.predict_proba(X_test)  # Get probability for both BUY (1) and SELL (0)
-        y_pred = np.where(y_pred_proba[:, 1] > 0.9, 1, np.where(y_pred_proba[:, 0] > 0.9, 0, -1))
+        y_pred = np.where(y_pred_proba[:, 1] > 0.7, 1, np.where(y_pred_proba[:, 0] > 0.7, 0, -1))
         # If probability(BUY) > 70%, predict BUY
         # If probability(SELL) > 70%, predict SELL
         # Else, reject the trade (-1 = NEUTRAL)
@@ -165,7 +165,7 @@ def test_trade_direction_model(trades, models):
 
         # Predict with probability threshold
         y_pred_proba = model.predict_proba(X)
-        y_pred = np.where(y_pred_proba[:, 1] > 0.8, 1, np.where(y_pred_proba[:, 0] > 0.8, 0, -1))
+        y_pred = np.where(y_pred_proba[:, 1] > 0.7, 1, np.where(y_pred_proba[:, 0] > 0.7, 0, -1))
 
         # Evaluate only trades with confident predictions
         valid_indices = y_pred != -1
@@ -177,7 +177,7 @@ def test_trade_direction_model(trades, models):
 
         # Stats
         total_trades_taken = len(per_trade_accuracy)
-        overall_accuracy = accuracy_score(confident_truths, confident_preds) if total_trades_taken > 0 else 0
+        overall_accuracy = accuracy_score(confident_truths, confident_preds) if total_trades_taken > 0 else 1
         print(f"{duration} min Accuracy: {overall_accuracy*100:.4f}%")
         avg_accuracy += overall_accuracy
         total_trades += total_trades_taken
