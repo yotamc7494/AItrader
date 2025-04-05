@@ -4,16 +4,10 @@ import os
 import pickle
 
 # Define global variables
-TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"
 CHUNK_SIZE = 5000
 
 # Load function remains unchanged
-def LoadTrades():
-    """
-    Load all trade files from TRADE_FOLDER in batches, concatenating them.
-
-    Returns a single list of all trades combined.
-    """
+def LoadTrades(TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"):
     if not os.path.exists(TRADE_FOLDER):
         print(f"⚠️ Folder {TRADE_FOLDER} not found.")
         return []
@@ -21,26 +15,29 @@ def LoadTrades():
     all_files = sorted([f for f in os.listdir(TRADE_FOLDER) if f.endswith(".pkl")])
     all_trades = []
     total_loaded = 0
-
-    for filename in all_files:
+    bar_length = 30
+    print(f"\n Loading Trades from {TRADE_FOLDER}")
+    for idx, filename in enumerate(all_files):
         full_path = os.path.join(TRADE_FOLDER, filename)
         try:
             with open(full_path, 'rb') as f:
                 trades_chunk = pickle.load(f)
             all_trades.extend(trades_chunk)
             total_loaded += len(trades_chunk)
-            print(f"✅ Loaded {len(trades_chunk)} trades from {full_path}.")
+            filled_length = int(((idx+1)/len(all_files))*bar_length)
+            bar = '█' * filled_length + '-' * (bar_length - filled_length)
+            print(f"\r[{bar}] {int(((idx+1)/len(all_files))*100)}% completed", end='', flush=True)
         except FileNotFoundError:
-            print(f"⚠️ File {full_path} not found.")
+            print(f"\n⚠️ File {full_path} not found.")
         except Exception as e:
-            print(f"❌ Error loading trades from {full_path}: {e}")
+            print(f"\n❌ Error loading trades from {full_path}: {e}")
 
-    print(f"✅ Finished loading trades. Total: {total_loaded} trades.")
+    print(f"\n✅ Finished loading trades. Total: {total_loaded} trades.")
     return all_trades
 
 
 # Save function remains unchanged
-def SaveTrades(trades):
+def SaveTrades(trades, TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"):
     """
     Save trades in folder TRADE_FOLDER in batches of CHUNK_SIZE.
     Overwrites any existing .pkl files in that folder.

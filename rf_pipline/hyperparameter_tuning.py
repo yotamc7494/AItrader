@@ -6,6 +6,7 @@ from sklearn.metrics import accuracy_score
 from xgboost import XGBClassifier
 from data_manager.trade_storage import LoadTrades
 from config import min_thresh, symbols
+from rf_pipline.rf_logic import DIR_CONFIDENT, MAG_CONFIDENT
 
 
 def tune_parameter(param_name, start_val, step, max_val, model_type, train_trades, val_trades, other_params, direction=False, mag_models=None):
@@ -18,7 +19,10 @@ def tune_parameter(param_name, start_val, step, max_val, model_type, train_trade
 
         if model_type == 'mag':
             models = train_mag_model(train_trades, params)
-            filtered_trades = get_detected_trades(val_trades, models)
+            filtered_trades_dict = get_detected_trades(val_trades, models)
+            filtered_trades = []
+            for i in range(1, 5):
+                filtered_trades += filtered_trades_dict[str(i+1)]
             trades_taken = len(filtered_trades)
             correct_trades = sum(
                 [1 for t in filtered_trades if (abs(t['results'][t['detected_for']]) > min_thresh[int(t['detected_for']) - 1])]
@@ -79,11 +83,11 @@ def train_mag_model(trades, params):
 
 def train_dir_model(trades, params):
     models = {}
-    X = np.array([[x for xs in t['input'] for x in xs] for t in trades])
 
     for i in range(1, 5):
         duration = str(i + 1)
-        y = np.array([1 if t['results'][duration] > 0 else 0 for t in trades])
+        X = np.array([[x for xs in t['input'] for x in xs] for t in trades[duration]])
+        y = np.array([1 if t['results'][duration] > 0 else 0 for t in trades[duration]])
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
         model = XGBClassifier(
@@ -105,7 +109,7 @@ def train_dir_model(trades, params):
 
 
 def run_dynamic_tuning():
-    trades = LoadTrades()
+    trades = LoadTrades("C:\\Users\\Yotam\\Desktop\\fetched trades")
     random.shuffle(trades)
     train_size = int(len(trades) * 0.7)
     val_size = int(len(trades) * 0.15)
@@ -117,22 +121,22 @@ def run_dynamic_tuning():
     base_params = {
         'gamma': 0.5,
         'n_estimators': 100,
-        'max_depth': 3,
-        'learning_rate': 0.04,
-        'colsample_bytree': 0.5,
-        'subsample': 0.5,
+        'max_depth': 2,
+        'learning_rate': 0.01,
+        'colsample_bytree': 0.4,
+        'subsample': 0.4,
         'scale_pos_weight': 0.1,
         'min_child_weight': 5,
     }
 
     param_steps = {
         'gamma': (0.1, 1.5),
-        'n_estimators': (50, 500),
+        'n_estimators': (50, 1900),
         'max_depth': (1, 6),
-        'learning_rate': (0.01, 0.15),
-        'colsample_bytree': (0.25, 1.0),
-        'subsample': (0.25, 1.0),
-        'scale_pos_weight': (0.1, 1.5),
+        'learning_rate': (0.01, 0.1),
+        'colsample_bytree': (0.1, 1.0),
+        'subsample': (0.1, 1.0),
+        'scale_pos_weight': (0.1, 2),
         'min_child_weight': (1, 10),
     }
 
@@ -187,7 +191,7 @@ def test_trade_direction_model(trades, models, print_out=False):
 
         # Predict with probability threshold
         y_pred_proba = model.predict_proba(X)
-        y_pred = np.where(y_pred_proba[:, 1] > 0.8, 1, np.where(y_pred_proba[:, 0] > 0.8, 0, -1))
+        y_pred = np.where(y_pred_proba[:, 1] > DIR_CONFIDENT, 1, np.where(y_pred_proba[:, 0] > DIR_CONFIDENT, 0, -1))
 
         valid_indices = y_pred != -1
         confident_preds = y_pred[valid_indices]
@@ -207,10 +211,11 @@ def test_trade_direction_model(trades, models, print_out=False):
 
 
 def get_detected_trades(trades, trade_detector_models, print_out=False):
-    detected_trades = []
+    detected_trades = {}
 
     for i in range(1, 5):  # Process for 2-5 minutes (skipping 1-minute)
         duration = str(i + 1)
+        detected_trades[duration] = []
         model = trade_detector_models.get(duration)
         if not model:
             print(f"⚠️ No Trade Detector model found for {duration}-minute, skipping...")
@@ -225,7 +230,7 @@ def get_detected_trades(trades, trade_detector_models, print_out=False):
             if predictions[idx] == 1:
                 trade = trades[idx].copy()
                 trade['detected_for'] = duration  # Add duration for tracking
-                detected_trades.append(trade)
+                detected_trades[duration].append(trade)
     if print_out:
         print(f"✅ Detected {len(detected_trades)} trades")
     return detected_trades

@@ -8,7 +8,10 @@ import pyautogui
 from data_manager.trade_storage import LoadTrades, SaveTrades
 from config import symbols
 from rf_pipline.load_and_save import load_rf_models
-
+import ta
+import pandas as pd
+from rf_pipline.rf_logic import DIR_CONFIDENT, MAG_CONFIDENT
+import tvDatafeed
 
 def fetch_inputs(symbol):
     try:
@@ -53,6 +56,71 @@ def fetch_inputs(symbol):
     except Exception as e:
         print(f"Error fetching indicators: {e}")
         return [0] * 9  # Return zeroed inputs if failed
+
+
+def fetch_inputs_from_tvdatafeed(symbol_data, bars=1):
+    # Buffer for indicator calculation (ensure enough data)
+    calc_buffer = 50  # Fetch at least 30 extra candles
+    fetch_count = bars + calc_buffer
+
+    tv = tvDatafeed.TvDatafeed()
+    symbol = symbol_data['symbol']
+    exchange = symbol_data['exchange']
+
+    df = tv.get_hist(symbol=symbol, exchange=exchange, interval=tvDatafeed.Interval.in_1_minute, n_bars=fetch_count)
+
+    if df is None or len(df) < fetch_count:
+        print("Not enough data")
+        return []
+
+    df = df.rename(columns={
+        'volume': 'Volume',
+        'open': 'Open',
+        'high': 'High',
+        'low': 'Low',
+        'close': 'Close'
+    })
+
+    # Calculate indicators
+    df['rsi'] = ta.momentum.RSIIndicator(df['Close']).rsi()
+    macd_obj = ta.trend.MACD(df['Close'])
+    df['macd'] = macd_obj.macd()
+    df['macd_signal'] = macd_obj.macd_signal()
+    df['ema7'] = ta.trend.EMAIndicator(df['Close'], window=7).ema_indicator()
+    df['ema21'] = ta.trend.EMAIndicator(df['Close'], window=21).ema_indicator()
+    df['sma7'] = ta.trend.SMAIndicator(df['Close'], window=7).sma_indicator()
+    df['sma21'] = ta.trend.SMAIndicator(df['Close'], window=21).sma_indicator()
+    df['williams_r'] = ta.momentum.WilliamsRIndicator(df['High'], df['Low'], df['Close']).williams_r()
+
+    # Normalize volume
+    df['normalized_volume'] = df['Volume'] / (df['Volume'] + 1e-6)
+    # Drop NaNs from indicator calculation
+    df = df.dropna()
+
+    # Extract the last `bars` rows only
+    df = df.tail(bars)
+
+    if len(df) < bars:
+        print("Not enough valid rows after indicators")
+
+        return []
+
+    # Extract indicators per row
+    results = []
+    for _, row in df.iterrows():
+        inputs = [
+            row['rsi'],
+            row['macd'],
+            row['macd_signal'],
+            row['ema7'],
+            row['ema21'],
+            row['sma7'],
+            row['sma21'],
+            row['williams_r'],
+            row['normalized_volume']
+        ]
+        results.append(inputs)
+    return results[0] if bars == 1 else results
 
 
 def perform_action(action, coords=None, text=None, delay=0.5):
@@ -177,26 +245,15 @@ def CheckIfMarketOpen(symbol_info):
 
     # Forex: 24/5
     if screener == "forex":
+        if current_hour > 20 and current_minute > 45:
+            return False
         if current_day == 5 and current_hour >= 21:
             return False
         if current_day == 6:
             return False
         if current_day == 0:
-            if current_hour < 22:
-                return False
-            return True
-        return True
-
-    # US stocks example
-    if screener == "america":
-        if current_day in [5, 6]:
-            return False
-        if (current_hour < 14) or (current_hour == 14 and current_minute < 30):
-            return False
-        if current_hour >= 21:
             return False
         return True
-
     return False
 
 
@@ -253,7 +310,8 @@ def ConvertToRFFormat(data):
 def predict_trades(trades, trade_detector_models, trade_direction_models):
     detected_trades = []
 
-    for duration in trade_direction_models.keys():
+    for i in range(1, 5):
+        duration = str(i+1)
         trade_detector = trade_detector_models[duration]
         trade_direction = trade_direction_models[duration]
 
@@ -263,7 +321,8 @@ def predict_trades(trades, trade_detector_models, trade_direction_models):
         X = np.array([[x for xs in trade['input'] for x in xs] for trade in trades])
 
         # **Step 1: Trade Detection**
-        trade_predictions = trade_detector.predict(X)
+        y_pred_proba = trade_detector.predict_proba(X)
+        trade_predictions = np.where(y_pred_proba[:, 1] > MAG_CONFIDENT, 1, 0)
         detected_indices = np.where(trade_predictions == 1)[0]
 
         if len(detected_indices) == 0:
@@ -277,10 +336,10 @@ def predict_trades(trades, trade_detector_models, trade_direction_models):
         direction_confidences = trade_direction.predict_proba(X_detected)  # Probabilities for each class
 
         for i, trade in enumerate(detected_trades_batch):
-            trade['duration'] = duration  # Store trade duration
-            trade['direction'] = "BUY" if direction_predictions[i] == 1 else "SELL"
             trade['confidence'] = max(direction_confidences[i])  # Use max probability as confidence
-            if trade['confidence'] > 0.7:
+            if trade['confidence'] > DIR_CONFIDENT:
+                trade['duration'] = duration  # Store trade duration
+                trade['direction'] = "BUY" if direction_predictions[i] == 1 else "SELL"
                 detected_trades.append(trade)
 
     # **Step 3: Sort trades by confidence (descending)**
@@ -303,14 +362,18 @@ class AITradeManager:
             'dir': load_rf_models('dir')
         }
         # In case no trades are loaded, add a dummy for shape
-        self.added_trades = 0
         trades = LoadTrades()
         self.retro_trades = trades
+        self.added_trades = len(self.retro_trades) % 5000
         self.historical_data = {symbol['symbol']: [] for symbol in symbols}
         self.historical_window = 30
         current_time = datetime.now(timezone.utc)
         current_minute_time = current_time.replace(second=0, microsecond=0)
-        self.last_recorded_time = current_minute_time - timedelta(minutes=1)
+        self.last_recorded_time = current_minute_time
+        try:
+            self.prime_system()
+        except Exception as e:
+            print(f"\nError in Priming System: {e} | Starting without priming")
 
     def get_trades(self, collect=False):
         self.validate_time()
@@ -346,7 +409,7 @@ class AITradeManager:
         else:
             print(f"✅ {len(self.open_trades_list)} Trades Are Open")
             if not collect:
-                self.suggest_trades(trades, False)
+                self.suggest_trades(trades, True)
 
     def close_trades(self):
         trades_to_remove = []
@@ -396,6 +459,18 @@ class AITradeManager:
             self.open_trades_list.clear()
             self.historical_data = {symbol['symbol']: [] for symbol in symbols}
         self.last_recorded_time = current_minute_time
+
+    def prime_system(self):
+        WaitForCandleClose()
+        print("\n⏰ Priming System")
+        for i, symbol in enumerate(self.symbols):
+            bar_length = len(symbols)
+            filled_length = (1 + i)
+            bar = '█' * filled_length + '-' * (bar_length - filled_length)
+            print(f"\r[{bar}] {filled_length}/{bar_length} Symbols Primed", end='', flush=True)
+            params = fetch_inputs_from_tvdatafeed(symbol, bars=self.historical_window)
+            self.historical_data[symbol['symbol']] = params
+        print("✅ System Primed")
 
     def suggest_trades(self, trade_list, auto_click):
         executable_trades = predict_trades(trade_list, self.models['mag'], self.models['dir'])
