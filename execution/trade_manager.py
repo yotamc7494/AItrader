@@ -194,42 +194,43 @@ def EnterLiveTrade(trade_list):
     Example function that tries to place trades in some live environment.
     """
     trade = trade_list[0]
-    perform_action("move", coords=(756, 337))
-    perform_action("click", coords=(756, 337))
-    perform_action("move", coords=(1038, 438))
-    perform_action("click", coords=(1038, 438))
+    perform_action("move", coords=(1131, 225))
+    perform_action("click", coords=(1131, 225))
+
+    perform_action("move", coords=(1350, 292))
+    perform_action("click", coords=(1350, 292))
     index = 0
     while True:
         perform_action('type', text=trade['symbol']['symbol'])
-        first_box = ((986, 521), (1482, 566))
-        second_box = ((986, 566), (1482, 611))
-        symbol_box = ((1190, 521), (1400, 566))
+        first_box = ((1316, 351), (1351, 372))
+        second_box = ((1315, 383), (1349, 403))
+        symbol_box = ((1433, 360), (1495, 375))
         action = handle_ticker_logic(first_box, second_box, symbol_box)
         if action == "Skip Trade":
             index += 1
             if index == len(trade_list):
-                perform_action("move", coords=(1508, 329))
-                perform_action("click", coords=(1508, 329))
+                perform_action("move", coords=(1389, 886))
+                perform_action("click", coords=(1389, 886))
                 return None
             trade = trade_list[index]
             pyautogui.typewrite(['backspace'] * 10)
         else:
             break
 
-    perform_action("move", coords=(1508, 329))
-    perform_action("click", coords=(1508, 329))
-    perform_action("move", coords=(1731, 347))
-    perform_action("click", coords=(1731, 347))
-    perform_action("move", coords=(1491, 412))
-    perform_action("doubleclick", coords=(1491, 412))
+    perform_action("move", coords=(1389, 886))
+    perform_action("click", coords=(1389, 886))
+    perform_action("move", coords=(1799, 227))
+    perform_action("click", coords=(1799, 227))
+    perform_action("move", coords=(1622, 264))
+    perform_action("doubleclick", coords=(1622, 264))
     perform_action('type', text=trade['duration'])
 
     if trade['direction'] == 'BUY':
-        perform_action("move", coords=(1787, 613))
-        perform_action("click", coords=(1787, 613))
+        perform_action("move", coords=(1814, 413))
+        perform_action("click", coords=(1814, 413))
     else:
-        perform_action("move", coords=(1770, 699))
-        perform_action("click", coords=(1770, 699))
+        perform_action("move", coords=(1793, 479))
+        perform_action("click", coords=(1793, 479))
     return trade
 
 

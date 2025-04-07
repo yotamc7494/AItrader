@@ -2,12 +2,14 @@
 retro_trades = []
 import os
 import pickle
+from config import device
 
 # Define global variables
 CHUNK_SIZE = 5000
+default_folder = "C:\\Users\\Yotam\\Dropbox\\retro_trades" if device is "Laptop" else "C:\\Users\\Yotam\\Desktop\\Dropbox\\retro_trades"
 
 # Load function remains unchanged
-def LoadTrades(TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"):
+def LoadTrades(TRADE_FOLDER = default_folder):
     if not os.path.exists(TRADE_FOLDER):
         print(f"⚠️ Folder {TRADE_FOLDER} not found.")
         return []
@@ -37,7 +39,7 @@ def LoadTrades(TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"):
 
 
 # Save function remains unchanged
-def SaveTrades(trades, TRADE_FOLDER = "C:\\Users\\Yotam\\Dropbox\\retro_trades"):
+def SaveTrades(trades, TRADE_FOLDER = default_folder):
     """
     Save trades in folder TRADE_FOLDER in batches of CHUNK_SIZE.
     Overwrites any existing .pkl files in that folder.

@@ -1,4 +1,8 @@
 # config.py
+import socket
+
+hostname = socket.gethostname()
+device = "Laptop" if hostname == "Yotam-Laptop" else "PC"
 
 # Where we store trade data
 TRADE_PKL = "retro_trades.pkl"

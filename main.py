@@ -1,11 +1,9 @@
 # main.py
-import numpy
 from execution.trade_manager import AITradeManager
 from rf_pipline.rf_logic import train_models
 from data_manager.trade_storage import LoadTrades, SaveTrades
 from rf_pipline.hyperparameter_tuning import run_dynamic_tuning
 from data_manager.trade_constructor import construct_trades
-import random
 
 
 def main():
@@ -46,3 +44,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
