@@ -9,7 +9,7 @@ import ta
 def construct_trades():
     trades = []
     for symbol in symbols:
-        n = 10000
+        n = 8000
         print(f"\nConstructing {n} trades for {symbol['symbol']}")
         data = fetch_trades(symbol, bars=n+30)
         for i in range(30, len(data)-6):

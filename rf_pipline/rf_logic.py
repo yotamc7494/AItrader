@@ -7,8 +7,8 @@ from rf_pipline.load_and_save import load_rf_models, save_rf_models
 import random
 from data_manager.trade_storage import LoadTrades
 from collections import defaultdict
-DIR_CONFIDENT = 0.97
-MAG_CONFIDENT = 0.7
+DIR_CONFIDENT = 0.95
+MAG_CONFIDENT = 0.8
 
 
 def train_rf_for_durations(trades):
@@ -19,28 +19,33 @@ def train_rf_for_durations(trades):
         threshold = min_thresh[i]
 
         print(f"\n🔹 Training Trade Detector for {duration}-minute predictions with threshold {threshold:.6f}...")
+        # Step 1: Label data
+        # Step 0: Split first!
+        train_trades, test_trades = train_test_split(trades, test_size=0.2, random_state=42)
 
-        # Prepare dataset
-        X = np.array([[x for xs in trade['input'] for x in xs] for trade in trades])
-        y = np.array([1 if abs(trade['results'][duration]) > threshold else 0 for trade in trades])
+        # Step 1: Balance the training set
+        train_y = []
+        trade_indices = []
+        no_trade_indices = []
+        for idx, trade in enumerate(train_trades):
+            is_trade = abs(trade['results'][duration]) > threshold
+            train_y.append(1 if is_trade else 0)
+            (trade_indices if is_trade else no_trade_indices).append(idx)
 
-        # Balance the dataset (force equal number of NO_TRADE and TRADE)
-        trade_indices = np.where(y == 1)[0]
-        no_trade_indices = np.where(y == 0)[0]
-        ratio = len(no_trade_indices)/len(trade_indices)
+        train_y = np.array(train_y)
         min_class_size = min(len(trade_indices), len(no_trade_indices))
+        ratio = len(no_trade_indices)/len(trade_indices)
+        #balanced_indices = np.concatenate([
+        #    np.random.choice(trade_indices, min_class_size, replace=False),
+        #    np.random.choice(no_trade_indices, int(min_class_size), replace=False)
+        #])
+        train_balanced = train_trades#[train_trades[i] for i in balanced_indices]
+        y_train = train_y#[balanced_indices]
+        X_train = np.array([[x for xs in t['input'] for x in xs] for t in train_balanced])
 
-        balanced_indices = np.concatenate([
-            np.random.choice(trade_indices, min_class_size, replace=False),
-            np.random.choice(no_trade_indices, min_class_size, replace=False)
-        ])
-
-        X_balanced = X[balanced_indices]
-        y_balanced = y[balanced_indices]
-
-        # Train-Test Split
-        X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.2, random_state=42,
-                                                            stratify=y_balanced)
+        # Step 2: Prepare test set (unbalanced!)
+        X_test = np.array([[x for xs in t['input'] for x in xs] for t in test_trades])
+        y_test = np.array([1 if abs(t['results'][duration]) > threshold else 0 for t in test_trades])
 
         # Train XGBoost with class weighting to prioritize trade detection
         model = XGBClassifier(
@@ -50,7 +55,7 @@ def train_rf_for_durations(trades):
             gamma=0.9,
             colsample_bytree=0.6,
             subsample=0.6,
-            scale_pos_weight=0.4,
+            scale_pos_weight=ratio,
             min_child_weight=6,
             objective="binary:logistic",
             eval_metric="logloss"
@@ -123,19 +128,17 @@ def test_mag_models(trades, models):
 
         # Predict probabilities
         y_pred_proba = model.predict_proba(X)
-        y_pred = (y_pred_proba[:, 1] > MAG_CONFIDENT).astype(int)
-
+        y_pred = np.where(y_pred_proba[:, 1] > MAG_CONFIDENT, 1, 0)
+        precision = precision_score(y, y_pred, pos_label=1)
         # Filter only predicted TRADEs
         predicted_trades = y_pred == 1
         y_test = y[predicted_trades]
-        y_pred = y_pred[predicted_trades]
 
         if len(y_test) == 0:
             print("⚠️ No trades were detected by the model.")
             continue
 
         # Evaluate precision
-        precision = precision_score(y_test, y_pred, pos_label=1)
         print(f"✅ TRADE Precision ({duration} min): {precision*100:.2f}%")
         print(f"🧪 Support: {len(y_test)} | True Positives: {np.sum(y_test)} | False Positives: {len(y_test) - np.sum(y_test)}")
 
@@ -322,3 +325,4 @@ def train_models():
     choice = input("Show Symbols Distribution? Y/n: ").strip().upper()
     if choice == "Y":
         analyze_trades_by_symbol(total_trades_taken)
+

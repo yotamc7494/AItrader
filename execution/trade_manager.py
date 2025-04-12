@@ -9,9 +9,9 @@ from data_manager.trade_storage import LoadTrades, SaveTrades
 from config import symbols
 from rf_pipline.load_and_save import load_rf_models
 import ta
-import pandas as pd
 from rf_pipline.rf_logic import DIR_CONFIDENT, MAG_CONFIDENT
 import tvDatafeed
+
 
 def fetch_inputs(symbol):
     try:

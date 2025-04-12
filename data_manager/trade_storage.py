@@ -6,7 +6,7 @@ from config import device
 
 # Define global variables
 CHUNK_SIZE = 5000
-default_folder = "C:\\Users\\Yotam\\Dropbox\\retro_trades" if device is "Laptop" else "C:\\Users\\Yotam\\Desktop\\Dropbox\\retro_trades"
+default_folder = "C:\\Users\\Yotam\\Dropbox\\retro_trades" if device == "Laptop" else "C:\\Users\\Yotam\\Desktop\\Dropbox\\retro_trades"
 
 # Load function remains unchanged
 def LoadTrades(TRADE_FOLDER = default_folder):
